@@ -227,6 +227,8 @@ def process_file(file: str, labels: list[str]) -> dict[str, float]:
         # Update Frame
         frame[:menu_shape[1],img_shape[0]:] = update_menu(values, menu_shape, boxes)
 
+    raise FinishEarlyException
+
 
 def has_collided(point, box):
     return (point[0] >= box[0]) and (point[0] <= box[2]) and (point[1] >= box[1]) and (point[1] <= box[3])
