@@ -1,5 +1,7 @@
 import numpy as np
 import cv2
+import os
+import sys
 
 SCREEN_SIZE = (1280, 720)
 
@@ -50,6 +52,15 @@ def on_mouse(event, x, y, flags, params): # [1]
 		global_box = [(center_x - (box_width // 2), center_y - (box_height // 2)), (center_x + (box_width // 2), center_y + (box_height // 2))]
 
 
+def create_dir(name_hint):
+	folder_name = f'training/{name_hint}'
+	index = 0
+	while os.path.exists(folder_name):
+		folder_name = f'training/{name_hint}_{index}'
+		index += 1
+	os.makedirs(folder_name)
+	return folder_name
+
 def main():
 	cv2.namedWindow('Window')
 	cv2.setMouseCallback('Window', on_mouse, 0)
@@ -59,6 +70,15 @@ def main():
 	mouth_frame = np.zeros((100, 200))
 
 	frame_number = 0
+
+	folder_name_hint = ''
+	if len(sys.argv) > 1:
+		folder_name_hint = sys.argv[1]
+
+	folder_name = create_dir(folder_name_hint)
+
+	recording = False
+	box_color = (0, 0, 255)
 
 	while True:
 		ret, frame = vid.read()
@@ -78,18 +98,28 @@ def main():
 
 			# mouth_frame = (mouth_frame_1 // 2) + (mouth_frame_2 // 2)
 
+		else:
+			recording = False
+
 		frame = cv2.cvtColor(frame, cv2.COLOR_GRAY2BGR)
-		frame = cv2.rectangle(frame, *global_drag, (0, 255, 0), 3)
+		frame = cv2.rectangle(frame, *global_drag, box_color, 3)
 		frame = cv2.rectangle(frame, *global_box, (255, 255, 0), 3)
 
 		cv2.imshow('Window', frame)
 		cv2.imshow('Mouth', mouth_frame)
 
-		if cv2.waitKey(17) & 0xFF == ord('q'):
+		key_code = cv2.waitKey(17) & 0xFF
+		if key_code == ord('q'):
 			break
 
-		if frame_number > 120 and frame_number < 360:
-			cv2.imwrite(f"training/001/{str(frame_number).zfill(5)}.png", mouth_frame)
+		if key_code == 13: # Enter
+			recording = not recording
+
+		if recording:
+			box_color = (0, 255, 0)
+			cv2.imwrite(f"{folder_name}/{str(frame_number).zfill(5)}.png", mouth_frame)
+		else:
+			box_color = (0, 0, 255)
 
 		frame_number += 1
 
