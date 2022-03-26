@@ -1,7 +1,10 @@
 import numpy as np
 import cv2
+from tensorflow.keras.models import load_model
 import socket
 import threading
+import json
+import os
 
 # Set up constants
 LOCAL_IP = "127.0.0.1"
@@ -9,9 +12,16 @@ LOCAL_PORT = 20001
 BUFFER_SIZE = 1024
 
 SCREEN_SIZE = (1280, 720)
-MOUTH_IMG_SIZE = (200, 100)
+MODEL_IMG_SIZE = (100, 100)
+MOUTH_IMG_SIZE = (MODEL_IMG_SIZE[0] * 2, MODEL_IMG_SIZE[1])
 
 WINDOW_NAME = 'MoShNVR'
+MODEL_FILE_REL = 'model/default_bak'
+LABELS_PATH_REL = 'mouth_shape_categories.txt'
+
+DIRNAME = os.path.dirname(__file__) # [7]
+MODEL_FILE = os.path.join(DIRNAME, MODEL_FILE_REL) # [7]
+LABELS_PATH = os.path.join(DIRNAME, LABELS_PATH_REL) # [7]
 
 BOUNDING_BOX_COLOR = (255, 255, 0)
 DRAG_BOX_COLOR = (0, 255, 0)
@@ -21,11 +31,20 @@ CENTER_LINE_COLOR = (0, 255, 255)
 # (I really don't like this. I'm looking for a way around this)
 global_drag = [(0,0), (0,0)]
 global_box = [(0,0), (0,0)]
+global_center_line = [(0,0), (0,0)]
 global_click = False
 
 # MAIN
 # Starting point for the program
 def main():
+    # Load in the trained model
+    model = load_model(MODEL_FILE)
+
+    # Get Column Names
+    labels = []
+    with open(LABELS_PATH) as f:
+        labels = [x.strip() for x in f]
+
     # Setup window with mouse support
     cv2.namedWindow(WINDOW_NAME)
     cv2.setMouseCallback(WINDOW_NAME, on_mouse, 0)
@@ -40,36 +59,63 @@ def main():
     udp_thread = threading.Thread(target=manage_udp, args=(shared_data, lock))
     udp_thread.start()
 
+    # Initialize prediction variable
+    prediction = None
+
     # Main loop
     while cv2.getWindowProperty(WINDOW_NAME, cv2.WND_PROP_VISIBLE) >= 1: # [5]
-        # Get new frame
-        frame = get_frame(vid)
+        # Get raw frame
+        frame = get_raw_frame(vid)
+        if frame is None:
+            break
+        
+        # Get display frame
+        disp = get_display_frame(frame)
 
         # Show Current Frame
-        cv2.imshow(WINDOW_NAME, frame)
+        cv2.imshow(WINDOW_NAME, disp)
+        # if mouth_frame is not None:
+            # cv2.imshow("mouth", mouth_frame)
 
         # Exit if needed
         key_code = cv2.waitKey(16)
         if (key_code & 0xFF) == ord('q') or (key_code & 0xFF) == 27:
-            cv2.destroyAllWindows()
             break
+
+        # Get processing frame
+        mouth_frame = get_mouth_img(frame)
+
+        # Update Prediction
+        if mouth_frame is not None:
+            prediction = predict(model, labels, mouth_frame)
 
         # Update shared data
         with lock:
-            shared_data[1] += 1
+            shared_data[1] = json.dumps(prediction, indent=4) # [6]
 
+    # Destroy all windows
+    cv2.destroyAllWindows()
+    
     # Close UDP thread
     with lock:
         shared_data[0] = False
     udp_thread.join()
 
-def get_frame(vid):
+def get_raw_frame(vid):
     # Read frame from video stream
     ret, frame = vid.read()
+
+    if not ret:
+        return None
 
     # Format and resize frame correctly
     frame = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
     frame = cv2.resize(frame, SCREEN_SIZE)
+
+    return frame
+
+def get_display_frame(frame):
+    # Format frame correctly
     frame = cv2.cvtColor(frame, cv2.COLOR_GRAY2BGR)
 
     # Draw Bounding Boxes
@@ -77,10 +123,7 @@ def get_frame(vid):
     frame = cv2.rectangle(frame, *global_box, BOUNDING_BOX_COLOR, 3)
 
     # Draw Center Line
-    center = (global_box[1][0] - global_box[0][0]) // 2 + global_box[0][0]
-    center_line = [(center, global_box[0][1]), (center, global_box[1][1])]
-
-    frame = cv2.rectangle(frame, *center_line, CENTER_LINE_COLOR, 3)
+    frame = cv2.rectangle(frame, *global_center_line, CENTER_LINE_COLOR, 3)
 
     return frame
 
@@ -97,6 +140,33 @@ def get_mouth_img(frame):
         mouth_frame = frame[global_box[0][1]:global_box[1][1], global_box[0][0]:global_box[1][0]]
         mouth_frame = cv2.resize(mouth_frame, MOUTH_IMG_SIZE)
 
+    return mouth_frame
+
+def process_single_img(img):
+    return (img[:,:MODEL_IMG_SIZE[0]], img[:,MODEL_IMG_SIZE[0]:][:,::-1])
+
+def predict(model, labels, img):
+    # prediction = {'data':None}
+
+    # Split the image left and right
+    img_l, img_r = process_single_img(img)
+
+    # Format arrays correctly
+    arr_l = np.array([img_l]).reshape(-1, *MODEL_IMG_SIZE, 1)
+    arr_r = np.array([img_r]).reshape(-1, *MODEL_IMG_SIZE, 1)
+
+    # Make a prediction using the model
+    pred_l = model.predict(arr_l)
+    pred_r = model.predict(arr_r)
+
+    # Combine and label predictions
+    labels_l = [f'{label}_l' for label in labels]
+    labels_r = [f'{label}_r' for label in labels]
+    prediction = {k:v for k,v in zip(labels_l, pred_l[0].tolist())} # [8, 9]
+    prediction.update({k:v for k,v in zip(labels_r, pred_r[0].tolist())}) # [8, 9]
+
+    return prediction
+
 def manage_udp(shared_data, lock):
     # Set up UDP socket
     udp_socket = socket.socket(family=socket.AF_INET, type=socket.SOCK_DGRAM)
@@ -104,7 +174,7 @@ def manage_udp(shared_data, lock):
     udp_socket.bind((LOCAL_IP, LOCAL_PORT))
 
     # Send data as requested
-    while(True):
+    while(shared_data[0]):
         try:
             # Get request from client
             _, addr = udp_socket.recvfrom(BUFFER_SIZE)
@@ -118,9 +188,7 @@ def manage_udp(shared_data, lock):
 
         # Periodically check if UDP socket should close
         except socket.timeout:
-            with lock:
-                if not shared_data[0]:
-                    break
+            pass
 
 # ON MOUSE
 # Handle the mouse input for specifying mouth location in video stream
@@ -165,6 +233,7 @@ def on_mouse(event, x, y, flags, params): # [1]
             center_y = SCREEN_SIZE[1] - box_height // 2
         
         global_box = [(center_x - (box_width // 2), center_y - (box_height // 2)), (center_x + (box_width // 2), center_y + (box_height // 2))]
+        global_center_line = [(center_x, global_box[0][1]), (center_x, global_box[1][1])]
 
 
 
@@ -178,3 +247,7 @@ if __name__ == "__main__":
 # [3] https://pythontic.com/modules/socket/udp-client-server-example
 # [4] https://quick-adviser.com/can-multiple-udp-sockets-on-same-port/
 # [5] https://medium.com/@mh_yip/opencv-detect-whether-a-window-is-closed-or-close-by-press-x-button-ee51616f7088
+# [6] https://www.geeksforgeeks.org/how-to-convert-python-dictionary-to-json/
+# [7] https://stackoverflow.com/questions/918154/relative-paths-in-python
+# [8] https://www.geeksforgeeks.org/python-merging-two-dictionaries/
+# [9] https://numpy.org/doc/stable/reference/generated/numpy.ndarray.tolist.html

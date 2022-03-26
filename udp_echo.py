@@ -3,7 +3,7 @@ import socket
 # Set up constants
 LOCAL_IP = "127.0.0.1"
 LOCAL_PORT = 20001
-BUFFER_SIZE = 1024
+BUFFER_SIZE = 2048
 GET_MESSAGE = str.encode("GET")
 
 # Set up UDP socket
@@ -16,7 +16,7 @@ addr = (LOCAL_IP, LOCAL_PORT)
 while(True):
     udp_socket.sendto(GET_MESSAGE, addr)
     message, addr = udp_socket.recvfrom(BUFFER_SIZE)
-    print(message)
+    print(message.decode())
 
 # Sources
 # [1] https://pythontic.com/modules/socket/udp-client-server-example
