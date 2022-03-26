@@ -7,8 +7,15 @@ import threading
 LOCAL_IP = "127.0.0.1"
 LOCAL_PORT = 20001
 BUFFER_SIZE = 1024
+
 SCREEN_SIZE = (1280, 720)
+MOUTH_IMG_SIZE = (200, 100)
+
 WINDOW_NAME = 'MoShNVR'
+
+BOUNDING_BOX_COLOR = (255, 255, 0)
+DRAG_BOX_COLOR = (0, 255, 0)
+CENTER_LINE_COLOR = (0, 255, 255)
 
 # Set up global variables for callback functions
 # (I really don't like this. I'm looking for a way around this)
@@ -35,6 +42,9 @@ def main():
 
     # Main loop
     while cv2.getWindowProperty(WINDOW_NAME, cv2.WND_PROP_VISIBLE) >= 1: # [5]
+        # Get new frame
+        frame = get_frame(vid)
+
         # Show Current Frame
         cv2.imshow(WINDOW_NAME, frame)
 
@@ -47,7 +57,6 @@ def main():
         # Update shared data
         with lock:
             shared_data[1] += 1
-            print(shared_data[1])
 
     # Close UDP thread
     with lock:
@@ -55,7 +64,38 @@ def main():
     udp_thread.join()
 
 def get_frame(vid):
-    pass
+    # Read frame from video stream
+    ret, frame = vid.read()
+
+    # Format and resize frame correctly
+    frame = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+    frame = cv2.resize(frame, SCREEN_SIZE)
+    frame = cv2.cvtColor(frame, cv2.COLOR_GRAY2BGR)
+
+    # Draw Bounding Boxes
+    frame = cv2.rectangle(frame, *global_drag, DRAG_BOX_COLOR, 3)
+    frame = cv2.rectangle(frame, *global_box, BOUNDING_BOX_COLOR, 3)
+
+    # Draw Center Line
+    center = (global_box[1][0] - global_box[0][0]) // 2 + global_box[0][0]
+    center_line = [(center, global_box[0][1]), (center, global_box[1][1])]
+
+    frame = cv2.rectangle(frame, *center_line, CENTER_LINE_COLOR, 3)
+
+    return frame
+
+def get_mouth_img(frame):
+    # Find width and height
+    mouth_width = global_box[1][0] - global_box[0][0]
+    mouth_height = global_box[1][1] - global_box[0][1]
+
+    # Initialize mouth_frame variable
+    mouth_frame = None
+
+    # If width and height are valid, get the frame
+    if (mouth_width > 0) and (mouth_height > 0):
+        mouth_frame = frame[global_box[0][1]:global_box[1][1], global_box[0][0]:global_box[1][0]]
+        mouth_frame = cv2.resize(mouth_frame, MOUTH_IMG_SIZE)
 
 def manage_udp(shared_data, lock):
     # Set up UDP socket
