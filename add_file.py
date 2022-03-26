@@ -7,10 +7,13 @@ import os
 import argparse
 parser = argparse.ArgumentParser(prog='MoShNVR',description='Tracks mouth shape, outputs to udp socket or optionally a specified file')
 parser.add_argument('-file_path', help = "Name and directoy of the file you want to save")
+parser.add_argument('-input_video_path', help = "Location of the video you want to process")
 args = parser.parse_args()
 
 
 file_path = args.file_path
+video=args.input_video_path
+print(video)
 if(file_path):
     with open(file_path, 'a+') as f:
         f.write('Hello World\n')
