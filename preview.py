@@ -4,6 +4,11 @@ import matplotlib.pyplot as plt
 from tensorflow.keras.models import load_model
 import random
 import os
+import argparse
+
+parser = argparse.ArgumentParser(prog='MoShNVR',description='Tracks mouth shape, outputs to udp socket or optionally a specified file')
+parser.add_argument('-file_path', help = "Name and directoy of the file you want to save")
+args = parser.parse_args()
 
 TEST_DIR = 'training/Test'
 MODEL_FILE = 'model/default'
