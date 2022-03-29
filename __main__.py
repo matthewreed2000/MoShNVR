@@ -1,10 +1,14 @@
 import numpy as np
 import cv2
+import os
+
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3' # [13]
+
 from tensorflow.keras.models import load_model
 import socket
 import threading
 import json
-import os
+import argparse
 
 # Set up constants
 LOCAL_IP = "127.0.0.1"
@@ -37,6 +41,15 @@ global_click = False
 # MAIN
 # Starting point for the program
 def main():
+    # Handle command line arguments [10]
+    parser = argparse.ArgumentParser(prog='MoShNVR',description='Tracks mouth shape, outputs to udp socket or optionally a specified file')
+    parser.add_argument('-o', '--output', help = "Name and directoy of the file you want to save")
+    parser.add_argument('-i', '--input', help = "Location of the video you want to process")
+    args = parser.parse_args()
+
+    file_path = args.output
+    input_video = args.input
+
     # Load in the trained model
     model = load_model(MODEL_FILE)
 
@@ -51,7 +64,17 @@ def main():
     frame = np.zeros((*SCREEN_SIZE[::-1], 3), dtype=np.uint8)
 
     # Setup video stream
-    vid = cv2.VideoCapture(0)
+    if input_video is not None:
+        vid = cv2.VideoCapture(input_video)
+        video_started = False
+    else:
+        vid = cv2.VideoCapture(0)
+        video_started = True
+
+    if not vid.isOpened(): # [14]
+        print("Failed to open video stream. Check that you have a webcam connected or a valid input file specified.")
+        cv2.destroyAllWindows()
+        return
 
     # Setup UDP thread
     shared_data = [True, 0]
@@ -62,10 +85,20 @@ def main():
     # Initialize prediction variable
     prediction = None
 
+    # Add '[' to output file to ensure valid JSON
+    if file_path is not None:
+        with open(file_path, 'a+') as f:
+            f.write('[')
+
     # Main loop
     while cv2.getWindowProperty(WINDOW_NAME, cv2.WND_PROP_VISIBLE) >= 1: # [5]
+        # Check if video should go to the next frame
+        video_started = video_started or (global_box[0] != global_box[1])
+        if not video_started:
+            vid.set(1,0) # [11]
+
         # Get raw frame
-        frame = get_raw_frame(vid)
+        frame = get_raw_frame(vid, not video_started)
         if frame is None:
             break
         
@@ -93,15 +126,25 @@ def main():
         with lock:
             shared_data[1] = json.dumps(prediction, indent=4) # [6]
 
+        # Optionally write prediction to file
+        if video_started and file_path is not None:
+            with open(file_path, 'a+') as f:
+                f.write(f'{shared_data[1]},')
+
     # Destroy all windows
     cv2.destroyAllWindows()
     
+    # Add ']' to output file to ensure valid JSON
+    if file_path is not None:
+        with open(file_path, 'a+') as f:
+            f.write('null]')
+
     # Close UDP thread
     with lock:
         shared_data[0] = False
     udp_thread.join()
 
-def get_raw_frame(vid):
+def get_raw_frame(vid, video_started=True):
     # Read frame from video stream
     ret, frame = vid.read()
 
@@ -196,6 +239,7 @@ def on_mouse(event, x, y, flags, params): # [1]
     global global_drag
     global global_box
     global global_click
+    global global_center_line
 
     if global_click == True:
         global_drag[1] = (x, y)
@@ -203,6 +247,7 @@ def on_mouse(event, x, y, flags, params): # [1]
     if event == cv2.EVENT_LBUTTONDOWN:
         global_drag = [(x, y), (x,y)]
         global_box = [(x, y), (x,y)]
+        global_center_line = [(x, y), (x,y)]
         global_click = True
     if event == cv2.EVENT_LBUTTONUP:
         global_click = False
@@ -251,3 +296,8 @@ if __name__ == "__main__":
 # [7] https://stackoverflow.com/questions/918154/relative-paths-in-python
 # [8] https://www.geeksforgeeks.org/python-merging-two-dictionaries/
 # [9] https://numpy.org/doc/stable/reference/generated/numpy.ndarray.tolist.html
+# [10] https://docs.python.org/3/library/argparse.html
+# [11] https://gist.github.com/vereperrot/dd2263e220e68555d687f2ed2075d590
+# [12] https://stackoverflow.com/questions/20432912/writing-to-a-new-file-if-it-doesnt-exist-and-appending-to-a-file-if-it-does
+# [13] https://stackoverflow.com/questions/35911252/disable-tensorflow-debugging-information
+# [14] https://answers.opencv.org/question/200260/how-to-handle-opencv-warnings/
