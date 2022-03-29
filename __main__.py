@@ -82,8 +82,9 @@ def main():
     udp_thread = threading.Thread(target=manage_udp, args=(shared_data, lock))
     udp_thread.start()
 
-    # Initialize prediction variable
+    # Initialize variables
     prediction = None
+    preview_enabled = True
 
     # Add '[' to output file to ensure valid JSON
     if file_path is not None:
@@ -103,7 +104,7 @@ def main():
             break
         
         # Get display frame
-        disp = get_display_frame(frame)
+        disp = get_display_frame(frame, preview_enabled)
 
         # Show Current Frame
         cv2.imshow(WINDOW_NAME, disp)
@@ -114,6 +115,8 @@ def main():
         key_code = cv2.waitKey(16)
         if (key_code & 0xFF) == ord('q') or (key_code & 0xFF) == 27:
             break
+        if (key_code & 0xFF) == ord(' '):
+            preview_enabled = not preview_enabled
 
         # Get processing frame
         mouth_frame = get_mouth_img(frame)
@@ -157,7 +160,11 @@ def get_raw_frame(vid, video_started=True):
 
     return frame
 
-def get_display_frame(frame):
+def get_display_frame(frame, preview_enabled=True):
+    # Optionally disable camera preview
+    if not preview_enabled:
+        return np.zeros((200,200,3))
+
     # Format frame correctly
     frame = cv2.cvtColor(frame, cv2.COLOR_GRAY2BGR)
 
