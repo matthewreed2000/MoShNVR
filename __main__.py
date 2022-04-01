@@ -20,7 +20,7 @@ MODEL_IMG_SIZE = (100, 100)
 MOUTH_IMG_SIZE = (MODEL_IMG_SIZE[0] * 2, MODEL_IMG_SIZE[1])
 
 WINDOW_NAME = 'MoShNVR'
-MODEL_FILE_REL = 'model/default'
+MODEL_FILE_REL = 'model/default.h5'
 LABELS_PATH_REL = 'mouth_shape_categories.txt'
 
 DIRNAME = os.path.dirname(__file__) # [7]
