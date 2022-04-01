@@ -5,6 +5,7 @@ import os
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3' # [13]
 
 from tensorflow.keras.models import load_model
+from tensorflow import errors
 import socket
 import threading
 import json
@@ -123,7 +124,22 @@ def main():
 
         # Update Prediction
         if mouth_frame is not None:
-            prediction = predict(model, labels, mouth_frame)
+            # Try to make a prediction
+            count = 0
+            prediction = None
+            while prediction is None and count < 5:
+                try:
+                    prediction = predict(model, labels, mouth_frame)
+
+                # Reload model if unknown error occurs
+                except errors.UnknownError:
+                    print("Something went wrong with the model. Reloading...")
+                    model = load_model(MODEL_FILE)
+                    count += 1
+            # Exit if reloading the model doesn't work
+            if count >= 5:
+                print("Retries were unsuccessful. Exiting gracefully.")
+                break
 
         # Update shared data
         with lock:
